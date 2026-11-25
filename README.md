@@ -1,6 +1,6 @@
 # Payment Links Manager
 
-A client-only payment-link manager built with Vite, React, and TypeScript. Links are stored in the current browser's local storage; the generated `pay.ledger.local` URLs are examples and do not process payments.
+A payment-link manager built with Vite, React, TypeScript, and a small Node validation API. Payment-link state is stored in the current browser's local storage; the API validates create and record-payment requests but does not process payments or persist authoritative financial records. Generated `pay.ledger.local` URLs are examples.
 
 ## Run locally
 
@@ -18,4 +18,4 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Vitest covers validation and status calculation, and the Playwright flow creates a link and filters the list by status.
+Vitest covers frontend/domain and server validation, including minor-unit payment arithmetic. The Playwright flow creates a link, records partial and final payments, filters by status, and verifies persistence after reload.

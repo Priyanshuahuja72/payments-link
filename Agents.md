@@ -79,3 +79,38 @@ Add or update tests for:
 - Persistence after page reload.
 
 Run the available build, unit tests and E2E tests. Fix failures and report the actual results. Do not claim a test passed unless it was run successfully.
+
+section 4 requirement changes
+New requirement: partial payments for payment links. Adapt the existing code and agent setup in this repo. Do not start a new repo.
+
+Requirements:
+1. Link creation: merchant can tick "Allow partial payments" and set a "Minimum first payment". If ticked, the minimum is required and must satisfy 0 < min <= amount. Validate on both frontend and backend.
+2. Each link tracks amountPaid. Add a "Record payment" action, available only on Active / Partially paid links. Accepted payment must satisfy amount > 0 and <= amount due (amount - amountPaid). Enforce the min-first-payment rule on the first payment only.
+3. Status is derived: Active (nothing paid), Partially paid, Paid (fully paid). Precedence: Paid > Expired > Partially paid / Active. Expired wins over Active/Partially paid once expiry passes, but Paid links never expire.
+4. The list shows paid / due for each link, and the status filter gains a "Partially paid" option.
+5. Links must survive a page reload (persist the new fields: allowPartial, minFirstPayment, amountPaid).
+
+Money handling: avoid floating-point errors (e.g. 0.1 + 0.2). Store and compute amounts in integer minor units (paise/cents) or round to 2 decimals, and compare with that same method.
+
+Tests: add or update tests for:
+- Status precedence: Paid vs Expired vs Partially paid (including Paid link past expiry stays Paid; Partially paid past expiry becomes Expired)
+- Payment > amount due rejected
+- Payment <= 0 rejected
+- Min first payment > amount rejected, min <= 0 rejected, min required when partial is ticked
+- Floating-point totals like 0.1 + 0.2 reach exactly the due amount and mark Paid
+- Persistence after reload
+
+Run all tests, make sure they pass, then commit and give me the commit hash and a list of the tests you added or changed.
+
+
+Section 5 prompt (supersedes the earlier no-backend constraint):
+Implement partial payments in the existing Payment Links Manager; do not create a new repository.
+
+- Keep link creation fields and validation, adding Allow partial payments and a required Minimum first payment when enabled. Enforce 0 < minimum <= total on both the frontend and the Node validation API.
+- Store money as integer minor units. Persist `allowPartial`, `minFirstPayment`, `amountPaid`, and payment records across reloads while migrating existing browser records.
+- Record payments only for Active and Partially paid links. Enforce payment > 0, payment <= amount due, and the minimum first payment on the first payment only.
+- Derive status with precedence Paid > Expired > Partially paid / Active. Paid links never expire.
+- Show paid and due amounts and add the Partially paid filter.
+- Run build, unit, server validation, and Playwright E2E checks. Commit the finished change and report the commit hash and tests changed or added.
+
+The Node API is a validation boundary for this demo only. It does not process payments or persist authoritative financial records; payment-link state remains browser-local.

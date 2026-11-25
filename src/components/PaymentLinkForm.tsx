@@ -1,15 +1,13 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import {
-  createPaymentLink,
   localDateString,
   validatePaymentLink,
   type CreatePaymentLinkInput,
-  type PaymentLink,
   type PaymentLinkErrors,
 } from '../domain/paymentLinks'
 
 interface PaymentLinkFormProps {
-  onCreate: (link: PaymentLink) => boolean
+  onCreate: (input: CreatePaymentLinkInput) => Promise<{ ok: boolean; errors?: PaymentLinkErrors }>
 }
 
 const initialForm: CreatePaymentLinkInput = {
@@ -18,8 +16,8 @@ const initialForm: CreatePaymentLinkInput = {
   customerEmail: '',
   amount: '',
   expiresAt: '',
-  allowPartialPayments: false,
-  minimumFirstPayment: '',
+  allowPartial: false,
+  minFirstPayment: '',
 }
 
 function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
@@ -33,13 +31,13 @@ function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
     if (submitted) setErrors(validatePaymentLink(updated))
   }
 
-  function togglePartialPayments(allowPartialPayments: boolean) {
-    const updated = { ...form, allowPartialPayments, minimumFirstPayment: allowPartialPayments ? form.minimumFirstPayment : '' }
+  function togglePartialPayments(allowPartial: boolean) {
+    const updated = { ...form, allowPartial, minFirstPayment: allowPartial ? form.minFirstPayment : '' }
     setForm(updated)
     if (submitted) setErrors(validatePaymentLink(updated))
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitted(true)
     const validationErrors = validatePaymentLink(form)
@@ -49,7 +47,11 @@ function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
       document.getElementById(firstInvalid)?.focus()
       return
     }
-    if (!onCreate(createPaymentLink(form))) return
+    const result = await onCreate(form)
+    if (!result.ok) {
+      if (result.errors) setErrors(result.errors)
+      return
+    }
     setForm(initialForm)
     setErrors({})
     setSubmitted(false)
@@ -80,16 +82,16 @@ function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
       <label className="checkbox-field">
         <input
           type="checkbox"
-          checked={form.allowPartialPayments}
+          checked={form.allowPartial}
           onChange={(event) => togglePartialPayments(event.target.checked)}
         />
         <span>Allow partial payments</span>
       </label>
-      {form.allowPartialPayments && (
-        <Field id="minimumFirstPayment" label="Minimum first payment" error={errors.minimumFirstPayment}>
+      {form.allowPartial && (
+        <Field id="minFirstPayment" label="Minimum first payment" error={errors.minFirstPayment}>
           <div className="amount-input">
             <span aria-hidden="true">$</span>
-            <input id="minimumFirstPayment" name="minimumFirstPayment" type="number" min="0.01" step="0.01" inputMode="decimal" value={form.minimumFirstPayment} onChange={(event) => updateField('minimumFirstPayment', event.target.value)} placeholder="0.00" aria-invalid={Boolean(errors.minimumFirstPayment)} aria-describedby={errors.minimumFirstPayment ? 'minimumFirstPayment-error' : undefined} />
+            <input id="minFirstPayment" name="minFirstPayment" type="number" min="0.01" step="0.01" inputMode="decimal" value={form.minFirstPayment} onChange={(event) => updateField('minFirstPayment', event.target.value)} placeholder="0.00" aria-invalid={Boolean(errors.minFirstPayment)} aria-describedby={errors.minFirstPayment ? 'minFirstPayment-error' : undefined} />
           </div>
         </Field>
       )}

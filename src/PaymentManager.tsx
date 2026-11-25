@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { loadLinks, saveLinks } from './domain/storage'
-import { getPaymentLinkStatus, recordPayment, type PaymentLink, type PaymentLinkStatus } from './domain/paymentLinks'
+import { validateCreateOnServer, validatePaymentOnServer } from './domain/api'
+import { createPaymentLink, formatMinorCurrency, getPaymentLinkStatus, recordPayment, type CreatePaymentLinkInput, type PaymentLinkErrors, type PaymentLinkStatus } from './domain/paymentLinks'
 import PaymentLinkForm from './components/PaymentLinkForm'
 import PaymentLinksTable from './components/PaymentLinksTable'
 import './manager.css'
@@ -17,28 +18,50 @@ function PaymentManager() {
   const visibleLinks = storedLinks.links.filter((link) =>
     filter === 'All' || getPaymentLinkStatus(link) === filter,
   )
-  const paidTotal = storedLinks.links.reduce((sum, link) => sum + link.paidAmount, 0)
+  const paidTotal = storedLinks.links.reduce((sum, link) => sum + link.amountPaid, 0)
   const activeCount = statuses.filter((status) => status === 'Active').length
 
-  function createLink(link: PaymentLink): boolean {
+  async function createLink(input: CreatePaymentLinkInput): Promise<{ ok: boolean; errors?: PaymentLinkErrors }> {
+    try {
+      const errors = await validateCreateOnServer(input)
+      if (Object.keys(errors).length > 0) return { ok: false, errors }
+    } catch {
+      setStorageError(true)
+      setNotice('The payment validation service is unavailable. Try again when it is back online.')
+      return { ok: false }
+    }
+
+    const link = createPaymentLink(input)
     const updatedLinks = [link, ...storedLinks.links]
     try {
       saveLinks(updatedLinks)
       setStoredLinks({ links: updatedLinks, error: false })
       setStorageError(false)
       setNotice(`Payment link created for ${link.customerName}.`)
-      return true
+      return { ok: true }
     } catch {
       setStorageError(true)
       setNotice('')
-      return false
+      return { ok: false }
     }
   }
 
-  function addPayment(linkId: string, amount: number): boolean {
-    const updatedLinks = storedLinks.links.map((link) =>
-      link.id === linkId ? recordPayment(link, amount) : link,
-    )
+  async function addPayment(linkId: string, amountCents: number): Promise<boolean> {
+    const currentLink = storedLinks.links.find((link) => link.id === linkId)
+    if (!currentLink) return false
+    try {
+      const serverError = await validatePaymentOnServer(currentLink, amountCents)
+      if (serverError) {
+        setNotice(serverError)
+        return false
+      }
+    } catch {
+      setStorageError(true)
+      setNotice('The payment validation service is unavailable. Try again when it is back online.')
+      return false
+    }
+
+    const updatedLinks = storedLinks.links.map((link) => link.id === linkId ? recordPayment(link, amountCents) : link)
     try {
       saveLinks(updatedLinks)
       setStoredLinks({ links: updatedLinks, error: false })
@@ -94,7 +117,7 @@ function PaymentManager() {
           </div>
           <div className="summary-item">
             <span className="summary-label">COLLECTED</span>
-            <strong>{formatCurrency(paidTotal)}</strong>
+            <strong>{formatMinorCurrency(paidTotal)}</strong>
             <span className="summary-detail">across all links</span>
           </div>
         </section>
@@ -158,10 +181,6 @@ function PaymentManager() {
       </main>
     </div>
   )
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 }
 
 export default PaymentManager

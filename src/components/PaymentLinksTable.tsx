@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { getPaymentLinkStatus, validatePaymentAmount, type PaymentLink, type PaymentLinkStatus } from '../domain/paymentLinks'
+import { formatMinorCurrency, getPaymentLinkStatus, moneyToMinorUnits, validatePaymentAmount, type PaymentLink, type PaymentLinkStatus } from '../domain/paymentLinks'
 import PaymentStatus from './PaymentStatus'
 
 interface PaymentLinksTableProps {
   links: PaymentLink[]
   filter: 'All' | PaymentLinkStatus
-  onRecordPayment: (linkId: string, amount: number) => boolean
+  onRecordPayment: (linkId: string, amountCents: number) => Promise<boolean>
 }
 
 function PaymentLinksTable({ links, filter, onRecordPayment }: PaymentLinksTableProps) {
@@ -24,15 +24,15 @@ function PaymentLinksTable({ links, filter, onRecordPayment }: PaymentLinksTable
     }
   }
 
-  function submitPayment(event: FormEvent<HTMLFormElement>, link: PaymentLink) {
+  async function submitPayment(event: FormEvent<HTMLFormElement>, link: PaymentLink) {
     event.preventDefault()
-    const amount = Number(paymentAmount)
-    const error = validatePaymentAmount(link, amount)
+    const amountCents = moneyToMinorUnits(paymentAmount) ?? 0
+    const error = validatePaymentAmount(link, amountCents)
     if (error) {
       setPaymentError(error)
       return
     }
-    if (!onRecordPayment(link.id, amount)) return
+    if (!await onRecordPayment(link.id, amountCents)) return
     setRecordingId('')
     setPaymentAmount('')
     setPaymentError('')
@@ -75,9 +75,9 @@ function PaymentLinksTable({ links, filter, onRecordPayment }: PaymentLinksTable
                   <div className="customer-name">{link.customerName}</div>
                   <div className="customer-email" title={link.customerEmail}>{link.customerEmail}</div>
                 </td>
-                <td className="amount-cell">{formatCurrency(link.amount)}</td>
-                <td>{formatCurrency(link.paidAmount)}</td>
-                <td>{formatCurrency(Math.max(0, link.amount - link.paidAmount))}</td>
+                <td className="amount-cell">{formatMinorCurrency(link.amountCents)}</td>
+                <td>{formatMinorCurrency(link.amountPaid)}</td>
+                <td>{formatMinorCurrency(Math.max(0, link.amountCents - link.amountPaid))}</td>
                 <td>{formatDate(link.createdAt)}</td>
                 <td>{formatDate(link.expiresAt)}</td>
                 <td><PaymentStatus status={status} /></td>
@@ -86,7 +86,7 @@ function PaymentLinksTable({ links, filter, onRecordPayment }: PaymentLinksTable
                     recordingId === link.id ? (
                       <form className="record-payment-form" onSubmit={(event) => submitPayment(event, link)}>
                         <label className="visually-hidden" htmlFor={`payment-${link.id}`}>Payment amount for {link.title}</label>
-                        <input id={`payment-${link.id}`} type="number" min="0.01" max={link.amount - link.paidAmount} step="0.01" inputMode="decimal" value={paymentAmount} onChange={(event) => { setPaymentAmount(event.target.value); setPaymentError('') }} placeholder="0.00" aria-describedby={paymentError ? `payment-error-${link.id}` : undefined} />
+                        <input id={`payment-${link.id}`} type="number" min="0.01" max={(link.amountCents - link.amountPaid) / 100} step="0.01" inputMode="decimal" value={paymentAmount} onChange={(event) => { setPaymentAmount(event.target.value); setPaymentError('') }} placeholder="0.00" aria-describedby={paymentError ? `payment-error-${link.id}` : undefined} />
                         <button className="record-submit" type="submit">Save</button>
                         <button className="record-cancel" type="button" onClick={() => { setRecordingId(''); setPaymentError('') }}>Cancel</button>
                         {paymentError && <span className="record-error" id={`payment-error-${link.id}`} role="alert">{paymentError}</span>}
@@ -104,10 +104,6 @@ function PaymentLinksTable({ links, filter, onRecordPayment }: PaymentLinksTable
       </table>
     </div>
   )
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 }
 
 function formatDate(value: string) {

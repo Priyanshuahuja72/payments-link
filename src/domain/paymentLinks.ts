@@ -1,7 +1,7 @@
 export type PaymentLinkStatus = 'Active' | 'Partially paid' | 'Paid' | 'Expired'
 
 export interface PaymentRecord {
-  amount: number
+  amountCents: number
   recordedAt: string
 }
 
@@ -10,10 +10,10 @@ export interface PaymentLink {
   title: string
   customerName: string
   customerEmail: string
-  amount: number
-  paidAmount: number
-  allowPartialPayments?: boolean
-  minimumFirstPayment?: number
+  amountCents: number
+  amountPaid: number
+  allowPartial: boolean
+  minFirstPayment?: number
   payments?: PaymentRecord[]
   createdAt: string
   expiresAt: string
@@ -26,15 +26,15 @@ export interface CreatePaymentLinkInput {
   customerEmail: string
   amount: string
   expiresAt: string
-  allowPartialPayments: boolean
-  minimumFirstPayment: string
+  allowPartial: boolean
+  minFirstPayment: string
 }
 
 export type PaymentLinkErrors = Partial<Record<keyof CreatePaymentLinkInput, string>>
 
 export function validatePaymentLink(input: CreatePaymentLinkInput, today = localDateString()): PaymentLinkErrors {
   const errors: PaymentLinkErrors = {}
-  const amount = Number(input.amount)
+  const amountCents = moneyToMinorUnits(input.amount)
 
   if (!input.title.trim()) errors.title = 'Enter a payment description.'
   if (!input.customerName.trim()) errors.customerName = 'Enter the customer name.'
@@ -45,21 +45,21 @@ export function validatePaymentLink(input: CreatePaymentLinkInput, today = local
   }
   if (!input.amount.trim()) {
     errors.amount = 'Enter an amount.'
-  } else if (!Number.isFinite(amount) || amount <= 0) {
-    errors.amount = 'Amount must be greater than zero.'
-  } else if (!/^\d+(\.\d{1,2})?$/.test(input.amount)) {
+  } else if (!hasMoneyPrecision(input.amount)) {
     errors.amount = 'Use no more than two decimal places.'
+  } else if (amountCents === null || amountCents <= 0) {
+    errors.amount = 'Amount must be greater than zero.'
   }
-  if (input.allowPartialPayments) {
-    const minimumPayment = Number(input.minimumFirstPayment)
-    if (!input.minimumFirstPayment.trim()) {
-      errors.minimumFirstPayment = 'Enter a minimum first payment.'
-    } else if (!Number.isFinite(minimumPayment) || minimumPayment <= 0) {
-      errors.minimumFirstPayment = 'Minimum first payment must be greater than zero.'
-    } else if (minimumPayment > amount) {
-      errors.minimumFirstPayment = 'Minimum first payment cannot exceed the total amount.'
-    } else if (!/^\d+(\.\d{1,2})?$/.test(input.minimumFirstPayment)) {
-      errors.minimumFirstPayment = 'Use no more than two decimal places.'
+  if (input.allowPartial) {
+    const minFirstPayment = moneyToMinorUnits(input.minFirstPayment)
+    if (!input.minFirstPayment.trim()) {
+      errors.minFirstPayment = 'Enter a minimum first payment.'
+    } else if (!hasMoneyPrecision(input.minFirstPayment)) {
+      errors.minFirstPayment = 'Use no more than two decimal places.'
+    } else if (minFirstPayment === null || minFirstPayment <= 0) {
+      errors.minFirstPayment = 'Minimum first payment must be greater than zero.'
+    } else if (amountCents !== null && minFirstPayment > amountCents) {
+      errors.minFirstPayment = 'Minimum first payment cannot exceed the total amount.'
     }
   }
   if (!input.expiresAt) {
@@ -72,9 +72,9 @@ export function validatePaymentLink(input: CreatePaymentLinkInput, today = local
 }
 
 export function getPaymentLinkStatus(link: PaymentLink, today = localDateString()): PaymentLinkStatus {
-  if (link.paidAmount >= link.amount) return 'Paid'
+  if (link.amountPaid >= link.amountCents) return 'Paid'
   if (link.expiresAt < today) return 'Expired'
-  if (link.paidAmount > 0) return 'Partially paid'
+  if (link.amountPaid > 0) return 'Partially paid'
   return 'Active'
 }
 
@@ -83,15 +83,22 @@ export function createPaymentLink(input: CreatePaymentLinkInput, now = new Date(
     ? crypto.randomUUID()
     : `${now.getTime()}-${Math.random().toString(36).slice(2)}`
 
+  const amountCents = moneyToMinorUnits(input.amount)
+  if (amountCents === null || amountCents <= 0) throw new Error('Invalid payment amount.')
+  const minFirstPayment = input.allowPartial ? moneyToMinorUnits(input.minFirstPayment) : null
+  if (input.allowPartial && (minFirstPayment === null || minFirstPayment <= 0 || minFirstPayment > amountCents)) {
+    throw new Error('Invalid minimum first payment.')
+  }
+
   return {
     id,
     title: input.title.trim(),
     customerName: input.customerName.trim(),
     customerEmail: input.customerEmail.trim(),
-    amount: Number(input.amount),
-    paidAmount: 0,
-    allowPartialPayments: input.allowPartialPayments,
-    minimumFirstPayment: input.allowPartialPayments ? Number(input.minimumFirstPayment) : undefined,
+    amountCents,
+    amountPaid: 0,
+    allowPartial: input.allowPartial,
+    minFirstPayment: minFirstPayment ?? undefined,
     payments: [],
     createdAt: now.toISOString(),
     expiresAt: input.expiresAt,
@@ -99,27 +106,50 @@ export function createPaymentLink(input: CreatePaymentLinkInput, now = new Date(
   }
 }
 
-export function validatePaymentAmount(link: PaymentLink, amount: number): string | undefined {
-  const amountDue = Math.max(0, link.amount - link.paidAmount)
-  if (!Number.isFinite(amount) || amount <= 0) return 'Payment must be greater than zero.'
-  if (amount > amountDue) return 'Payment cannot exceed the amount due.'
-  if (link.paidAmount === 0 && !link.allowPartialPayments && amount < amountDue) {
+export function validatePaymentAmount(link: PaymentLink, amountCents: number): string | undefined {
+  const amountDue = Math.max(0, link.amountCents - link.amountPaid)
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return 'Payment must be greater than zero.'
+  if (amountCents > amountDue) return 'Payment cannot exceed the amount due.'
+  if (link.amountPaid === 0 && !link.allowPartial && amountCents < amountDue) {
     return 'This link does not allow partial payments.'
   }
-  if (link.paidAmount === 0 && link.allowPartialPayments && amount < (link.minimumFirstPayment ?? 0)) {
-    return `First payment must be at least ${formatCurrency(link.minimumFirstPayment ?? 0)}.`
+  if (link.amountPaid === 0 && link.allowPartial && amountCents < (link.minFirstPayment ?? 0)) {
+    return `First payment must be at least ${formatMinorCurrency(link.minFirstPayment ?? 0)}.`
   }
   return undefined
 }
 
-export function recordPayment(link: PaymentLink, amount: number, recordedAt = new Date()): PaymentLink {
-  const error = validatePaymentAmount(link, amount)
+export function recordPayment(link: PaymentLink, amountCents: number, recordedAt = new Date()): PaymentLink {
+  const error = validatePaymentAmount(link, amountCents)
   if (error) throw new Error(error)
   return {
     ...link,
-    paidAmount: Math.round((link.paidAmount + amount) * 100) / 100,
-    payments: [...(link.payments ?? []), { amount, recordedAt: recordedAt.toISOString() }],
+    amountPaid: link.amountPaid + amountCents,
+    payments: [...(link.payments ?? []), { amountCents, recordedAt: recordedAt.toISOString() }],
   }
+}
+
+export function moneyToMinorUnits(value: string): number | null {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim())
+  if (!match) return null
+  const whole = Number(match[1])
+  const fraction = Number((match[2] ?? '').padEnd(2, '0'))
+  const minorUnits = whole * 100 + fraction
+  return Number.isSafeInteger(minorUnits) ? minorUnits : null
+}
+
+function hasMoneyPrecision(value: string): boolean {
+  return /^-?\d+(?:\.\d{1,2})?$/.test(value.trim())
+}
+
+export function formatMinorCurrency(amountCents: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amountCents / 100)
+}
+
+export function minorUnitsToMoneyString(amountCents: number): string {
+  const whole = Math.floor(amountCents / 100)
+  const cents = String(amountCents % 100).padStart(2, '0')
+  return `${whole}.${cents}`
 }
 
 export function localDateString(date = new Date()): string {
@@ -127,8 +157,4 @@ export function localDateString(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 }
