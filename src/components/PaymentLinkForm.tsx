@@ -18,6 +18,8 @@ const initialForm: CreatePaymentLinkInput = {
   customerEmail: '',
   amount: '',
   expiresAt: '',
+  allowPartialPayments: false,
+  minimumFirstPayment: '',
 }
 
 function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
@@ -27,6 +29,12 @@ function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
 
   function updateField(field: keyof CreatePaymentLinkInput, value: string) {
     const updated = { ...form, [field]: value }
+    setForm(updated)
+    if (submitted) setErrors(validatePaymentLink(updated))
+  }
+
+  function togglePartialPayments(allowPartialPayments: boolean) {
+    const updated = { ...form, allowPartialPayments, minimumFirstPayment: allowPartialPayments ? form.minimumFirstPayment : '' }
     setForm(updated)
     if (submitted) setErrors(validatePaymentLink(updated))
   }
@@ -69,6 +77,22 @@ function PaymentLinkForm({ onCreate }: PaymentLinkFormProps) {
           <input id="expiresAt" name="expiresAt" type="date" min={localDateString()} value={form.expiresAt} onChange={(event) => updateField('expiresAt', event.target.value)} aria-invalid={Boolean(errors.expiresAt)} aria-describedby={errors.expiresAt ? 'expiresAt-error' : undefined} />
         </Field>
       </div>
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={form.allowPartialPayments}
+          onChange={(event) => togglePartialPayments(event.target.checked)}
+        />
+        <span>Allow partial payments</span>
+      </label>
+      {form.allowPartialPayments && (
+        <Field id="minimumFirstPayment" label="Minimum first payment" error={errors.minimumFirstPayment}>
+          <div className="amount-input">
+            <span aria-hidden="true">$</span>
+            <input id="minimumFirstPayment" name="minimumFirstPayment" type="number" min="0.01" step="0.01" inputMode="decimal" value={form.minimumFirstPayment} onChange={(event) => updateField('minimumFirstPayment', event.target.value)} placeholder="0.00" aria-invalid={Boolean(errors.minimumFirstPayment)} aria-describedby={errors.minimumFirstPayment ? 'minimumFirstPayment-error' : undefined} />
+          </div>
+        </Field>
+      )}
       <button className="primary-button" type="submit"><span aria-hidden="true">+</span> Create payment link</button>
       <p className="form-footnote">A shareable demo URL will be created. No payment is processed.</p>
     </form>

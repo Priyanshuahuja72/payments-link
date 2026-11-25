@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { loadLinks, saveLinks } from './domain/storage'
-import { getPaymentLinkStatus, type PaymentLink, type PaymentLinkStatus } from './domain/paymentLinks'
+import { getPaymentLinkStatus, recordPayment, type PaymentLink, type PaymentLinkStatus } from './domain/paymentLinks'
 import PaymentLinkForm from './components/PaymentLinkForm'
 import PaymentLinksTable from './components/PaymentLinksTable'
 import './manager.css'
 
-const filters: Array<'All' | PaymentLinkStatus> = ['All', 'Unpaid', 'Paid', 'Expired']
+const filters: Array<'All' | PaymentLinkStatus> = ['All', 'Active', 'Partially paid', 'Paid', 'Expired']
 
 function PaymentManager() {
   const [storedLinks, setStoredLinks] = useState(() => loadLinks())
@@ -18,7 +18,7 @@ function PaymentManager() {
     filter === 'All' || getPaymentLinkStatus(link) === filter,
   )
   const paidTotal = storedLinks.links.reduce((sum, link) => sum + link.paidAmount, 0)
-  const unpaidCount = statuses.filter((status) => status === 'Unpaid').length
+  const activeCount = statuses.filter((status) => status === 'Active').length
 
   function createLink(link: PaymentLink): boolean {
     const updatedLinks = [link, ...storedLinks.links]
@@ -27,6 +27,24 @@ function PaymentManager() {
       setStoredLinks({ links: updatedLinks, error: false })
       setStorageError(false)
       setNotice(`Payment link created for ${link.customerName}.`)
+      return true
+    } catch {
+      setStorageError(true)
+      setNotice('')
+      return false
+    }
+  }
+
+  function addPayment(linkId: string, amount: number): boolean {
+    const updatedLinks = storedLinks.links.map((link) =>
+      link.id === linkId ? recordPayment(link, amount) : link,
+    )
+    try {
+      saveLinks(updatedLinks)
+      setStoredLinks({ links: updatedLinks, error: false })
+      setStorageError(false)
+      const link = updatedLinks.find((item) => item.id === linkId)
+      setNotice(`Payment recorded for ${link?.customerName ?? 'customer'}.`)
       return true
     } catch {
       setStorageError(true)
@@ -71,7 +89,7 @@ function PaymentManager() {
           </div>
           <div className="summary-item">
             <span className="summary-label">AWAITING PAYMENT</span>
-            <strong>{unpaidCount}</strong>
+            <strong>{activeCount}</strong>
             <span className="summary-detail">active requests</span>
           </div>
           <div className="summary-item">
@@ -130,7 +148,7 @@ function PaymentManager() {
               ))}
             </div>
 
-            <PaymentLinksTable links={visibleLinks} filter={filter} />
+            <PaymentLinksTable links={visibleLinks} filter={filter} onRecordPayment={addPayment} />
           </section>
         </div>
         <footer className="page-footer">

@@ -5,7 +5,8 @@ interface PaymentStatusProps {
 }
 
 function PaymentStatus({ status }: PaymentStatusProps) {
-  return <span className={`status-badge status-${status.toLowerCase()}`}>{status}</span>
+  const className = status.toLowerCase().replaceAll(' ', '-')
+  return <span className={`status-badge status-${className}`}>{status}</span>
 }
 
 export default PaymentStatus

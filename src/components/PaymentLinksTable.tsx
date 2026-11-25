@@ -1,14 +1,18 @@
-import { useState } from 'react'
-import { getPaymentLinkStatus, type PaymentLink, type PaymentLinkStatus } from '../domain/paymentLinks'
+import { useState, type FormEvent } from 'react'
+import { getPaymentLinkStatus, validatePaymentAmount, type PaymentLink, type PaymentLinkStatus } from '../domain/paymentLinks'
 import PaymentStatus from './PaymentStatus'
 
 interface PaymentLinksTableProps {
   links: PaymentLink[]
   filter: 'All' | PaymentLinkStatus
+  onRecordPayment: (linkId: string, amount: number) => boolean
 }
 
-function PaymentLinksTable({ links, filter }: PaymentLinksTableProps) {
+function PaymentLinksTable({ links, filter, onRecordPayment }: PaymentLinksTableProps) {
   const [copiedId, setCopiedId] = useState('')
+  const [recordingId, setRecordingId] = useState('')
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentError, setPaymentError] = useState('')
 
   async function copyLink(link: PaymentLink) {
     try {
@@ -18,6 +22,20 @@ function PaymentLinksTable({ links, filter }: PaymentLinksTableProps) {
     } catch {
       setCopiedId('')
     }
+  }
+
+  function submitPayment(event: FormEvent<HTMLFormElement>, link: PaymentLink) {
+    event.preventDefault()
+    const amount = Number(paymentAmount)
+    const error = validatePaymentAmount(link, amount)
+    if (error) {
+      setPaymentError(error)
+      return
+    }
+    if (!onRecordPayment(link.id, amount)) return
+    setRecordingId('')
+    setPaymentAmount('')
+    setPaymentError('')
   }
 
   if (links.length === 0) {
@@ -39,6 +57,8 @@ function PaymentLinksTable({ links, filter }: PaymentLinksTableProps) {
             <th scope="col">PAYMENT LINK</th>
             <th scope="col">CUSTOMER</th>
             <th scope="col">AMOUNT</th>
+            <th scope="col">PAID</th>
+            <th scope="col">DUE</th>
             <th scope="col">CREATED</th>
             <th scope="col">EXPIRES</th>
             <th scope="col">STATUS</th>
@@ -56,10 +76,27 @@ function PaymentLinksTable({ links, filter }: PaymentLinksTableProps) {
                   <div className="customer-email" title={link.customerEmail}>{link.customerEmail}</div>
                 </td>
                 <td className="amount-cell">{formatCurrency(link.amount)}</td>
+                <td>{formatCurrency(link.paidAmount)}</td>
+                <td>{formatCurrency(Math.max(0, link.amount - link.paidAmount))}</td>
                 <td>{formatDate(link.createdAt)}</td>
                 <td>{formatDate(link.expiresAt)}</td>
                 <td><PaymentStatus status={status} /></td>
-                <td><button className="copy-button" type="button" onClick={() => void copyLink(link)} aria-label={`Copy payment link for ${link.title}`} title="Copy payment link">{copiedId === link.id ? 'Copied' : 'Copy'}</button></td>
+                <td className="row-actions">
+                  {(status === 'Active' || status === 'Partially paid') && (
+                    recordingId === link.id ? (
+                      <form className="record-payment-form" onSubmit={(event) => submitPayment(event, link)}>
+                        <label className="visually-hidden" htmlFor={`payment-${link.id}`}>Payment amount for {link.title}</label>
+                        <input id={`payment-${link.id}`} type="number" min="0.01" max={link.amount - link.paidAmount} step="0.01" inputMode="decimal" value={paymentAmount} onChange={(event) => { setPaymentAmount(event.target.value); setPaymentError('') }} placeholder="0.00" aria-describedby={paymentError ? `payment-error-${link.id}` : undefined} />
+                        <button className="record-submit" type="submit">Save</button>
+                        <button className="record-cancel" type="button" onClick={() => { setRecordingId(''); setPaymentError('') }}>Cancel</button>
+                        {paymentError && <span className="record-error" id={`payment-error-${link.id}`} role="alert">{paymentError}</span>}
+                      </form>
+                    ) : (
+                      <button className="record-button" type="button" onClick={() => { setRecordingId(link.id); setPaymentAmount(''); setPaymentError('') }}>Record payment</button>
+                    )
+                  )}
+                  <button className="copy-button" type="button" onClick={() => void copyLink(link)} aria-label={`Copy payment link for ${link.title}`} title="Copy payment link">{copiedId === link.id ? 'Copied' : 'Copy'}</button>
+                </td>
               </tr>
             )
           })}
